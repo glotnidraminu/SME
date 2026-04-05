@@ -1,5 +1,5 @@
 // ============================================
-// SPOTIFY PKCE (работает без сервера)
+// SPOTIFY PKCE - РАБОЧАЯ ВЕРСИЯ
 // ============================================
 
 let token = null;
@@ -25,47 +25,49 @@ const closePlayerBtn = document.getElementById('closePlayerButton');
 
 const GENRES = ['pop', 'rock', 'hip-hop', 'electronic', 'jazz', 'classical', 'r&b', 'country', 'reggae', 'blues', 'metal', 'punk'];
 
-// ========== ГЕНЕРАЦИЯ PKCE ==========
-function generateCodeVerifier() {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return btoa(String.fromCharCode(...array)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-}
-
-async function generateCodeChallenge(verifier) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(verifier);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-}
-
-// ========== ЗАПУСК ==========
-window.addEventListener('load', () => {
-    createGenreButtons();
-    checkCodeFromUrl();
-    setupEvents();
-});
-
-// Проверка кода из URL
-async function checkCodeFromUrl() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
-    
-    if (code) {
-        // Меняем код на токен
-        await exchangeCodeForToken(code);
-        window.history.pushState({}, document.title, window.location.pathname);
-    } else {
-        const savedToken = localStorage.getItem('spotify_token');
-        if (savedToken) {
-            token = savedToken;
-            await loadUser();
-            enableSearch();
-        }
+// ========== ФУНКЦИИ PKCE ==========
+function generateRandomString(length) {
+    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    let text = '';
+    for (let i = 0; i < length; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
     }
+    return text;
 }
 
-// Обмен кода на токен
+async function generateCodeChallenge(codeVerifier) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(codeVerifier);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/=/g, '')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_');
+}
+
+// ========== АВТОРИЗАЦИЯ ==========
+async function authorize() {
+    console.log('Авторизация запущена...');
+    
+    codeVerifier = generateRandomString(128);
+    localStorage.setItem('code_verifier', codeVerifier);
+    
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    
+    const params = new URLSearchParams();
+    params.append('client_id', SPOTIFY_CONFIG.clientId);
+    params.append('response_type', 'code');
+    params.append('redirect_uri', SPOTIFY_CONFIG.redirectUri);
+    params.append('code_challenge_method', 'S256');
+    params.append('code_challenge', codeChallenge);
+    params.append('scope', SPOTIFY_CONFIG.scopes.join(' '));
+    
+    const authUrl = `${SPOTIFY_CONFIG.authUrl}?${params.toString()}`;
+    console.log('Переход на URL:', authUrl);
+    window.location.href = authUrl;
+}
+
+// ========== ОБМЕН КОДА НА ТОКЕН ==========
 async function exchangeCodeForToken(code) {
     const verifier = localStorage.getItem('code_verifier');
     
@@ -84,37 +86,77 @@ async function exchangeCodeForToken(code) {
         });
         
         const data = await response.json();
+        console.log('Ответ от токена:', data);
+        
         if (data.access_token) {
             token = data.access_token;
             localStorage.setItem('spotify_token', token);
             localStorage.removeItem('code_verifier');
             await loadUser();
             enableSearch();
+        } else if (data.error) {
+            console.error('Ошибка:', data.error_description);
+            alert('Ошибка авторизации: ' + data.error_description);
         }
     } catch (err) {
-        console.error('Ошибка получения токена', err);
+        console.error('Ошибка получения токена:', err);
+        alert('Ошибка подключения к Spotify');
     }
 }
 
-// Авторизация
-async function authorize() {
-    codeVerifier = generateCodeVerifier();
-    localStorage.setItem('code_verifier', codeVerifier);
+// ========== ПРОВЕРКА КОДА ИЗ URL ==========
+async function checkCodeFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const error = urlParams.get('error');
     
-    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    if (error) {
+        console.error('Ошибка от Spotify:', error);
+        alert('Ошибка: ' + error);
+        return;
+    }
     
-    const params = new URLSearchParams();
-    params.append('client_id', SPOTIFY_CONFIG.clientId);
-    params.append('response_type', 'code');
-    params.append('redirect_uri', SPOTIFY_CONFIG.redirectUri);
-    params.append('code_challenge_method', 'S256');
-    params.append('code_challenge', codeChallenge);
-    params.append('scope', SPOTIFY_CONFIG.scopes.join(' '));
-    
-    window.location.href = `${SPOTIFY_CONFIG.authUrl}?${params.toString()}`;
+    if (code) {
+        console.log('Код получен, обмениваю на токен...');
+        await exchangeCodeForToken(code);
+        window.history.pushState({}, document.title, window.location.pathname);
+    } else {
+        const savedToken = localStorage.getItem('spotify_token');
+        if (savedToken) {
+            token = savedToken;
+            await loadUser();
+            enableSearch();
+        }
+    }
 }
 
-// Создание кнопок жанров
+// ========== ЗАГРУЗКА ПРОФИЛЯ ==========
+async function loadUser() {
+    if (!token) return;
+    
+    try {
+        const res = await fetch(`${SPOTIFY_CONFIG.apiUrl}/me`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            userNameSpan.textContent = data.display_name || data.email || 'Пользователь';
+            if (data.images && data.images[0]) userImg.src = data.images[0].url;
+            loginBtn.style.display = 'none';
+            userArea.style.display = 'flex';
+            console.log('Пользователь загружен:', data.display_name);
+        } else if (res.status === 401) {
+            logout();
+        } else {
+            console.error('Ошибка загрузки профиля:', res.status);
+        }
+    } catch (err) {
+        console.error('Ошибка:', err);
+    }
+}
+
+// ========== ОСТАЛЬНЫЕ ФУНКЦИИ ==========
 function createGenreButtons() {
     GENRES.forEach(genre => {
         const btn = document.createElement('button');
@@ -131,32 +173,15 @@ function createGenreButtons() {
     });
 }
 
-// Загрузка профиля
-async function loadUser() {
-    try {
-        const res = await fetch(`${SPOTIFY_CONFIG.apiUrl}/me`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.ok) {
-            const data = await res.json();
-            userNameSpan.textContent = data.display_name || data.email || 'Пользователь';
-            if (data.images && data.images[0]) userImg.src = data.images[0].url;
-            document.getElementById('loginButton').style.display = 'none';
-            userArea.style.display = 'flex';
-        } else if (res.status === 401) {
-            logout();
-        }
-    } catch (err) {
-        console.log('Ошибка профиля');
-    }
-}
-
 function enableSearch() {
-    if (selectedGenre) searchBtn.disabled = false;
+    if (selectedGenre && token) searchBtn.disabled = false;
 }
 
 function setupEvents() {
-    loginBtn.onclick = () => authorize();
+    loginBtn.onclick = () => {
+        console.log('Кнопка входа нажата');
+        authorize();
+    };
     logoutBtn.onclick = logout;
     searchBtn.onclick = searchTracks;
     closePlayerBtn.onclick = () => {
@@ -169,7 +194,7 @@ function logout() {
     token = null;
     localStorage.removeItem('spotify_token');
     localStorage.removeItem('code_verifier');
-    document.getElementById('loginButton').style.display = 'block';
+    loginBtn.style.display = 'block';
     userArea.style.display = 'none';
     searchBtn.disabled = true;
     trackListDiv.innerHTML = '<div class="empty-message">🎵 Авторизуйся и выбери жанр</div>';
@@ -206,6 +231,7 @@ async function searchTracks() {
             renderTracks();
         }
     } catch (err) {
+        console.error(err);
         trackListDiv.innerHTML = '<div class="empty-message">❌ Ошибка загрузки</div>';
     }
 }
@@ -263,3 +289,14 @@ function escapeHtml(str) {
         return m;
     });
 }
+
+// ========== ЗАПУСК ==========
+window.addEventListener('load', () => {
+    console.log('Приложение загружено');
+    console.log('Redirect URI:', SPOTIFY_CONFIG.redirectUri);
+    console.log('Client ID:', SPOTIFY_CONFIG.clientId);
+    
+    createGenreButtons();
+    checkCodeFromUrl();
+    setupEvents();
+});

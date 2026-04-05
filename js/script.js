@@ -1,12 +1,13 @@
 // ============================================
-// ОСНОВНОЙ СКРИПТ (минимальный)
+// SPOTIFY PKCE (работает без сервера)
 // ============================================
 
 let token = null;
 let allTracks = [];
 let selectedGenre = null;
+let codeVerifier = null;
 
-// Элементы DOM
+// DOM элементы
 const loginBtn = document.getElementById('loginButton');
 const logoutBtn = document.getElementById('logoutButton');
 const userArea = document.getElementById('userArea');
@@ -22,15 +23,96 @@ const playerArtist = document.getElementById('playerArtistTitle');
 const playerCover = document.getElementById('playerCover');
 const closePlayerBtn = document.getElementById('closePlayerButton');
 
-// Список жанров
 const GENRES = ['pop', 'rock', 'hip-hop', 'electronic', 'jazz', 'classical', 'r&b', 'country', 'reggae', 'blues', 'metal', 'punk'];
+
+// ========== ГЕНЕРАЦИЯ PKCE ==========
+function generateCodeVerifier() {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return btoa(String.fromCharCode(...array)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+async function generateCodeChallenge(verifier) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
 
 // ========== ЗАПУСК ==========
 window.addEventListener('load', () => {
     createGenreButtons();
-    checkTokenFromUrl();
+    checkCodeFromUrl();
     setupEvents();
 });
+
+// Проверка кода из URL
+async function checkCodeFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    
+    if (code) {
+        // Меняем код на токен
+        await exchangeCodeForToken(code);
+        window.history.pushState({}, document.title, window.location.pathname);
+    } else {
+        const savedToken = localStorage.getItem('spotify_token');
+        if (savedToken) {
+            token = savedToken;
+            await loadUser();
+            enableSearch();
+        }
+    }
+}
+
+// Обмен кода на токен
+async function exchangeCodeForToken(code) {
+    const verifier = localStorage.getItem('code_verifier');
+    
+    const params = new URLSearchParams();
+    params.append('client_id', SPOTIFY_CONFIG.clientId);
+    params.append('grant_type', 'authorization_code');
+    params.append('code', code);
+    params.append('redirect_uri', SPOTIFY_CONFIG.redirectUri);
+    params.append('code_verifier', verifier);
+    
+    try {
+        const response = await fetch('https://accounts.spotify.com/api/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params
+        });
+        
+        const data = await response.json();
+        if (data.access_token) {
+            token = data.access_token;
+            localStorage.setItem('spotify_token', token);
+            localStorage.removeItem('code_verifier');
+            await loadUser();
+            enableSearch();
+        }
+    } catch (err) {
+        console.error('Ошибка получения токена', err);
+    }
+}
+
+// Авторизация
+async function authorize() {
+    codeVerifier = generateCodeVerifier();
+    localStorage.setItem('code_verifier', codeVerifier);
+    
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    
+    const params = new URLSearchParams();
+    params.append('client_id', SPOTIFY_CONFIG.clientId);
+    params.append('response_type', 'code');
+    params.append('redirect_uri', SPOTIFY_CONFIG.redirectUri);
+    params.append('code_challenge_method', 'S256');
+    params.append('code_challenge', codeChallenge);
+    params.append('scope', SPOTIFY_CONFIG.scopes.join(' '));
+    
+    window.location.href = `${SPOTIFY_CONFIG.authUrl}?${params.toString()}`;
+}
 
 // Создание кнопок жанров
 function createGenreButtons() {
@@ -49,29 +131,7 @@ function createGenreButtons() {
     });
 }
 
-// Проверка токена в URL (после редиректа от Spotify)
-function checkTokenFromUrl() {
-    const hash = window.location.hash.substring(1);
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get('access_token');
-    
-    if (accessToken) {
-        token = accessToken;
-        localStorage.setItem('spotify_token', token);
-        window.history.pushState({}, document.title, window.location.pathname);
-        loadUser();
-        enableSearch();
-    } else {
-        const savedToken = localStorage.getItem('spotify_token');
-        if (savedToken) {
-            token = savedToken;
-            loadUser();
-            enableSearch();
-        }
-    }
-}
-
-// Загрузка профиля пользователя
+// Загрузка профиля
 async function loadUser() {
     try {
         const res = await fetch(`${SPOTIFY_CONFIG.apiUrl}/me`, {
@@ -87,22 +147,16 @@ async function loadUser() {
             logout();
         }
     } catch (err) {
-        console.log('Ошибка загрузки профиля');
+        console.log('Ошибка профиля');
     }
 }
 
-// Включение кнопки поиска
 function enableSearch() {
     if (selectedGenre) searchBtn.disabled = false;
 }
 
-// Настройка событий
 function setupEvents() {
-    loginBtn.onclick = () => {
-        const url = `${SPOTIFY_CONFIG.authUrl}?client_id=${SPOTIFY_CONFIG.clientId}&response_type=token&redirect_uri=${encodeURIComponent(SPOTIFY_CONFIG.redirectUri)}&scope=${SPOTIFY_CONFIG.scopes.join(' ')}&show_dialog=true`;
-        window.location.href = url;
-    };
-    
+    loginBtn.onclick = () => authorize();
     logoutBtn.onclick = logout;
     searchBtn.onclick = searchTracks;
     closePlayerBtn.onclick = () => {
@@ -111,10 +165,10 @@ function setupEvents() {
     };
 }
 
-// Выход
 function logout() {
     token = null;
     localStorage.removeItem('spotify_token');
+    localStorage.removeItem('code_verifier');
     document.getElementById('loginButton').style.display = 'block';
     userArea.style.display = 'none';
     searchBtn.disabled = true;
@@ -123,7 +177,6 @@ function logout() {
     audio.pause();
 }
 
-// Поиск треков
 async function searchTracks() {
     if (!selectedGenre) {
         alert('Выбери жанр!');
@@ -157,7 +210,6 @@ async function searchTracks() {
     }
 }
 
-// Отображение треков
 function renderTracks() {
     trackListDiv.innerHTML = allTracks.map(track => {
         const artist = track.artists.map(a => a.name).join(', ');
@@ -180,7 +232,6 @@ function renderTracks() {
     }).join('');
 }
 
-// Воспроизведение трека
 window.playTrack = function(trackId) {
     const track = allTracks.find(t => t.id === trackId);
     if (!track || !track.preview_url) {
@@ -203,7 +254,6 @@ window.playTrack = function(trackId) {
     audio.play().catch(e => console.log('Ошибка воспроизведения'));
 };
 
-// Защита от XSS
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>]/g, function(m) {

@@ -3,17 +3,16 @@
 // ============================================
 
 const SPOTIFY_CONFIG = {
-    // 👇 ЗАМЕНИ НА СВОЙ CLIENT ID (получить: https://developer.spotify.com/dashboard)
-    clientId: 'YOUR_CLIENT_ID_HERE',
     
-    // 👇 АДРЕС ТВОЕГО GITHUB PAGES (пример: https://ivanov23.github.io/spotify-music-app/)
-    // ВАЖНО: Этот же адрес добавь в Redirect URIs в настройках приложения Spotify!
-    redirectUri: 'https://ТВОЙ_ЛОГИН.github.io/spotify-music-app/',
+    clientId: '1dfe23443bf54754bada1b46d898c871',
     
-    // Разрешения (минимальные)
+    !
+    redirectUri: 'redirectUri: 'https://glotnidraminu.github.io/SME/',',
+    
+    // Разрешения (
     scopes: ['user-read-private', 'user-read-email'],
     
-    // URL (не менять)
+    // не менять
     authUrl: 'https://accounts.spotify.com/authorize',
     apiUrl: 'https://api.spotify.com/v1'
 };

@@ -1,5 +1,6 @@
 // ============================================
-// SPOTIFY PKCE - ПОЛНОСТЬЮ РАБОЧАЯ ВЕРСИЯ
+// SPOTIFY MUSIC PLAYER - ПОЛНОСТЬЮ РАБОЧАЯ ВЕРСИЯ
+// Автор: студент 4 курса
 // ============================================
 
 let token = null;
@@ -23,16 +24,18 @@ const playerArtist = document.getElementById('playerArtistTitle');
 const playerCover = document.getElementById('playerCover');
 const closePlayerBtn = document.getElementById('closePlayerButton');
 
-// НОВЫЙ ЭЛЕМЕНТ - поле поиска
+// Создаем поле поиска
 const searchInput = document.createElement('input');
 searchInput.type = 'text';
-searchInput.placeholder = '🔍 Искать песни, исполнителей...';
+searchInput.placeholder = '🔍 Найти песню или исполнителя...';
 searchInput.id = 'searchInput';
 searchInput.className = 'search-input';
 
-// Вставляем поле поиска перед кнопкой
-const searchControl = document.querySelector('.search-control') || searchBtn.parentElement;
-searchControl.insertBefore(searchInput, searchBtn);
+// Вставляем поле поиска
+const searchControl = document.querySelector('.genre-group');
+if (searchControl) {
+    searchControl.after(searchInput);
+}
 
 // Список жанров
 const GENRES = ['pop', 'rock', 'hip-hop', 'electronic', 'jazz', 'classical', 'r&b', 'country', 'reggae', 'blues', 'metal', 'punk'];
@@ -61,12 +64,6 @@ async function generateCodeChallenge(codeVerifier) {
 async function authorize() {
     console.log('Авторизация запущена...');
     
-    if (!SPOTIFY_CONFIG.scopes) {
-        console.error('Ошибка: SPOTIFY_CONFIG.scopes не определен!');
-        alert('Ошибка конфигурации: нет scopes в config.js');
-        return;
-    }
-    
     codeVerifier = generateRandomString(128);
     localStorage.setItem('code_verifier', codeVerifier);
     
@@ -78,7 +75,7 @@ async function authorize() {
     params.append('redirect_uri', SPOTIFY_CONFIG.redirectUri);
     params.append('code_challenge_method', 'S256');
     params.append('code_challenge', codeChallenge);
-    params.append('scope', SPOTIFY_CONFIG.scopes.join(' '));
+    params.append('scope', 'user-read-private user-read-email');
     
     const authUrl = `${SPOTIFY_CONFIG.authUrl}?${params.toString()}`;
     console.log('Переход на URL:', authUrl);
@@ -111,7 +108,7 @@ async function exchangeCodeForToken(code) {
             localStorage.setItem('spotify_token', token);
             localStorage.removeItem('code_verifier');
             await loadUser();
-            enableSearch();
+            searchBtn.disabled = false;
         } else if (data.error) {
             console.error('Ошибка:', data.error_description);
             alert('Ошибка авторизации: ' + data.error_description);
@@ -143,7 +140,7 @@ async function checkCodeFromUrl() {
         if (savedToken) {
             token = savedToken;
             await loadUser();
-            enableSearch();
+            searchBtn.disabled = false;
         }
     }
 }
@@ -166,8 +163,6 @@ async function loadUser() {
             console.log('Пользователь загружен:', data.display_name);
         } else if (res.status === 401) {
             logout();
-        } else {
-            console.error('Ошибка загрузки профиля:', res.status);
         }
     } catch (err) {
         console.error('Ошибка:', err);
@@ -185,60 +180,65 @@ function createGenreButtons() {
             document.querySelectorAll('.genre-chip').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             selectedGenre = genre;
-            // Очищаем поле поиска при выборе жанра
             searchInput.value = '';
-            if (token) searchBtn.disabled = false;
         };
         genreContainer.appendChild(btn);
     });
 }
 
-function enableSearch() {
-    if (token) searchBtn.disabled = false;
-}
-
 // ========== ПОИСК ТРЕКОВ ==========
 async function searchTracks() {
-    let query = '';
+    // Проверяем токен
+    if (!token) {
+        const savedToken = localStorage.getItem('spotify_token');
+        if (savedToken) {
+            token = savedToken;
+        } else {
+            alert('Сначала авторизуйтесь через Spotify!');
+            authorize();
+            return;
+        }
+    }
     
-    // Проверяем, есть ли текст в поле поиска
-    const searchText = searchInput.value.trim();
+    // Получаем поисковый запрос
+    let query = searchInput.value.trim();
     
-    if (searchText !== '') {
-        // Поиск по тексту (песня, исполнитель)
-        query = searchText;
-    } else if (selectedGenre) {
-        // Поиск по жанру (через популярные треки в этом стиле)
+    if (!query && selectedGenre) {
         query = selectedGenre;
-    } else {
-        alert('Выбери жанр или введи название песни/исполнителя!');
+    }
+    
+    if (!query) {
+        alert('Введи название песни/исполнителя или выбери жанр!');
         return;
     }
     
     trackListDiv.innerHTML = '<div class="empty-message">⏳ Загрузка...</div>';
     
     try {
-        // Используем общий поиск Spotify
-        const url = `${SPOTIFY_CONFIG.apiUrl}/search?q=${encodeURIComponent(query)}&type=track&limit=24&market=RU`;
+        const encodedQuery = encodeURIComponent(query);
+        const url = `${SPOTIFY_CONFIG.apiUrl}/search?q=${encodedQuery}&type=track&limit=24&market=RU`;
+        
         console.log('Запрос:', url);
         
         const res = await fetch(url, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         
+        console.log('Статус:', res.status);
+        
         if (res.status === 401) {
-            logout();
-            alert('Сессия истекла, войди заново');
+            localStorage.removeItem('spotify_token');
+            token = null;
+            alert('Сессия истекла, войдите заново');
+            authorize();
             return;
         }
         
         if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
+            throw new Error(`Ошибка ${res.status}`);
         }
         
         const data = await res.json();
-        console.log('Ответ:', data);
-        
         allTracks = data.tracks?.items || [];
         
         if (allTracks.length === 0) {
@@ -247,7 +247,7 @@ async function searchTracks() {
             renderTracks();
         }
     } catch (err) {
-        console.error('Ошибка поиска:', err);
+        console.error('Ошибка:', err);
         trackListDiv.innerHTML = '<div class="empty-message">❌ Ошибка загрузки. Попробуй позже.</div>';
     }
 }
@@ -298,27 +298,7 @@ window.playTrack = function(trackId) {
     audio.play().catch(e => console.log('Ошибка воспроизведения'));
 };
 
-// ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
-function setupEvents() {
-    loginBtn.onclick = () => {
-        console.log('Кнопка входа нажата');
-        authorize();
-    };
-    logoutBtn.onclick = logout;
-    searchBtn.onclick = searchTracks;
-    closePlayerBtn.onclick = () => {
-        playerPanel.style.display = 'none';
-        audio.pause();
-    };
-    
-    // Поиск по нажатию Enter в поле ввода
-    searchInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            searchTracks();
-        }
-    });
-}
-
+// ========== ВЫХОД ==========
 function logout() {
     token = null;
     localStorage.removeItem('spotify_token');
@@ -326,15 +306,32 @@ function logout() {
     loginBtn.style.display = 'block';
     userArea.style.display = 'none';
     searchBtn.disabled = true;
-    trackListDiv.innerHTML = '<div class="empty-message">🎵 Авторизуйся и выбери жанр или введи название</div>';
+    trackListDiv.innerHTML = '<div class="empty-message">🎵 Авторизуйся и найди музыку</div>';
     playerPanel.style.display = 'none';
     audio.pause();
     selectedGenre = null;
     searchInput.value = '';
-    // Снимаем активный жанр
     document.querySelectorAll('.genre-chip').forEach(b => b.classList.remove('active'));
 }
 
+// ========== НАСТРОЙКА СОБЫТИЙ ==========
+function setupEvents() {
+    loginBtn.onclick = () => authorize();
+    logoutBtn.onclick = logout;
+    searchBtn.onclick = searchTracks;
+    closePlayerBtn.onclick = () => {
+        playerPanel.style.display = 'none';
+        audio.pause();
+    };
+    
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            searchTracks();
+        }
+    });
+}
+
+// ========== ЗАЩИТА ОТ XSS ==========
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>]/g, function(m) {
@@ -345,11 +342,10 @@ function escapeHtml(str) {
     });
 }
 
-// ========== ЗАПУСК ==========
+// ========== ЗАПУСК ПРИЛОЖЕНИЯ ==========
 window.addEventListener('load', () => {
-    console.log('Приложение загружено');
+    console.log('Spotify Music Player загружен');
     console.log('Redirect URI:', SPOTIFY_CONFIG.redirectUri);
-    console.log('Client ID:', SPOTIFY_CONFIG.clientId);
     
     createGenreButtons();
     checkCodeFromUrl();

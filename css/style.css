@@ -318,3 +318,25 @@ audio {
         max-width: 100%;
     }
 }
+
+/* Поле поиска */
+.search-input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 500px;
+    border: none;
+    background: #2a2a2a;
+    color: white;
+    font-size: 14px;
+    margin-bottom: 15px;
+    outline: none;
+}
+
+.search-input:focus {
+    background: #3e3e3e;
+    border: 1px solid #1DB954;
+}
+
+.search-input::placeholder {
+    color: #b3b3b3;
+}

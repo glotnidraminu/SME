@@ -1,12 +1,7 @@
-// ============================================
-// НАСТРОЙКИ ДЛЯ SPOTIFY API (GITHUB PAGES)
-// ============================================
-
 const SPOTIFY_CONFIG = {
-    clientId: '1dfe23443bf54754bada1b46d898c871',
+    clientId: 'ТВОЙ_НАСТОЯЩИЙ_CLIENT_ID',  // ← должен быть твой!
     redirectUri: 'https://glotnidraminu.github.io/SME/',
+    scopes: ['user-read-private', 'user-read-email'],
     authUrl: 'https://accounts.spotify.com/authorize',
-    apiUrl: 'https://api.spotify.com/v1',
-   
-    codeChallengeMethod: 'S256'
+    apiUrl: 'https://api.spotify.com/v1'
 };

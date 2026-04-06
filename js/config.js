@@ -1,7 +1,13 @@
 const SPOTIFY_CONFIG = {
-    clientId: '6d501ba787df46b48fef3720cccc479c',  
+    clientId: 'a44747bf12af49f7adbaef4070357d78',  
     redirectUri: 'https://glotnidraminu.github.io/SME/',
-    scopes: ['user-read-private', 'user-read-email'],
+    scopes: scopes: [
+        'user-read-private',
+        'user-read-email',
+        'user-library-read',
+        'playlist-read-private',
+        'streaming'
+    ],
     authUrl: 'https://accounts.spotify.com/authorize',
     apiUrl: 'https://api.spotify.com/v1'
 };
